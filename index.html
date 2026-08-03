@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Drug Consumption Tracker</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+    body { background-color: #f1f5f9; color: #334155; padding: 1rem; min-height: 100vh; }
+    .container { max-width: 56rem; margin: 0 auto; display: flex; flex-direction: column; gap: 1.5rem; }
+    .card { background: white; padding: 1.5rem; border-radius: 0.75rem; border: 1px solid #e2e8f0; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    h1 { font-size: 1.5rem; color: #0f172a; font-weight: 700; }
+    h2 { font-size: 1.125rem; color: #1e293b; font-weight: 600; margin-bottom: 1rem; }
+    p { font-size: 0.875rem; color: #64748b; margin-top: 0.25rem; }
+    label { display: block; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: #475569; margin-bottom: 0.25rem; }
+    .grid { display: grid; grid-template-columns: 1fr; gap: 1rem; }
+    @media (min-width: 768px) { .grid { grid-template-columns: repeat(3, 1fr); } }
+    input, select { width: 100%; border: 1px solid #cbd5e1; border-radius: 0.5rem; padding: 0.625rem; outline: none; font-size: 0.875rem; background-color: #fff; }
+    input:focus, select:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.2); }
+    .flex { display: flex; gap: 0.5rem; }
+    .flex-wrap { flex-wrap: wrap; }
+    .btn { width: 100%; background: #2563eb; color: white; font-weight: 500; padding: 0.625rem 1rem; border-radius: 0.5rem; border: none; cursor: pointer; }
+    .btn:hover { background: #1d4ed8; }
+    .btn-action { width: auto; font-size: 0.75rem; padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-weight: 500; cursor: pointer; border: none; }
+    .btn-copy { background: #e2e8f0; color: #334155; }
+    .btn-undo { background: #f59e0b; color: white; }
+    .btn-reset { background: #ef4444; color: white; }
+    .btn-action:disabled { opacity: 0.5; cursor: not-allowed; }
+    table { width: 100%; text-align: left; border-collapse: collapse; margin-top: 0.5rem; }
+    th { border-bottom: 1px solid #e2e8f0; color: #64748b; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; padding: 0.625rem 0.75rem; }
+    td { padding: 0.625rem 0.75rem; border-bottom: 1px solid #f1f5f9; font-size: 0.875rem; }
+    .capitalize { text-transform: capitalize; }
+    .text-right { text-align: right; }
+    .text-center { text-align: center; }
+    .qty-btn { background: #f1f5f9; border: 1px solid #cbd5e1; color: #334155; border-radius: 0.25rem; width: 24px; height: 24px; font-weight: bold; cursor: pointer; line-height: 1; }
+    .qty-btn:hover { background: #e2e8f0; }
+    .btn-del { color: #ef4444; background: none; border: none; cursor: pointer; font-size: 1rem; padding: 0.25rem; margin-left: 0.5rem; }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    
+    <!-- Header -->
+    <header class="card">
+      <h1>Drug Consumption & Dispensing Log</h1>
+      <p>Log individual dispensations; total counts are calculated automatically.</p>
+    </header>
+
+    <!-- Entry Form Section -->
+    <div class="card">
+      <h2>Record New Dispensation</h2>
+      
+      <form id="dispenseForm" class="grid">
+        
+        <!-- Column 1: Dropdown Drug Selection -->
+        <div>
+          <label>Select Drug</label>
+          <select id="drugInput" required>
+            <option value="">-- Select Drug --</option>
+          </select>
+        </div>
+
+        <!-- Column 2: Quantity Dispensed -->
+        <div>
+          <label>Quantity Dispensed</label>
+          <div class="flex">
+            <select id="presetQty">
+              <option value="">Preset</option>
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="5">5</option>
+              <option value="10">10</option>
+              <option value="15">15</option>
+              <option value="20">20</option>
+              <option value="30">30</option>
+            </select>
+            <input 
+              type="number" 
+              id="manualQty" 
+              min="1" 
+              placeholder="Qty" 
+              required 
+            />
+          </div>
+        </div>
+
+        <!-- Submit Button -->
+        <div style="display: flex; align-items: flex-end;">
+          <button type="submit" class="btn">+ Add Dispensation</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Column 3: Automated Total Summary Table -->
+    <div class="card">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+        <h2>Total Consumption Summary</h2>
+        <div class="flex flex-wrap">
+          <button id="undoBtn" class="btn-action btn-undo" disabled>Undo Last Action</button>
+          <button id="copyBtn" class="btn-action btn-copy">Copy Summary</button>
+          <button id="resetBtn" class="btn-action btn-reset">Clear All Logs</button>
+        </div>
+      </div>
+
+      <div style="overflow-x-auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Drug Name</th>
+              <th class="text-right">Total Count Dispensed</th>
+              <th class="text-center" style="width: 120px;">Adjust / Delete</th>
+            </tr>
+          </thead>
+          <tbody id="summaryTableBody">
+            <!-- Dynamic Totals Render Here -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const defaultMasterList = [
+      "Adapalene",
+      "Albendazole (Syp)",
+      "Amlodipine",
+      "Antacid",
+      "Amoxycillin",
+      "Amoxyclav"
+      "Azithro (Tab)",
+      "Betamethasone (Cream)",
+      "Bromhexine (Syp)",
+      "Calamine Lotion",
+      "Calcium",
+      "Clindamycin (Cream)",
+      "Clobetasol (Oint)",
+      "Clotri Powder",
+      "Clotrimazole (Cream)",
+      "Diclo (Gel)",
+      "Fluconazole (Tab)",
+      "Folate (Tab)",
+      "Folic Acid",
+      "Framycetin (Cream)",
+      "Fusidic Acid (Cream)",
+      "IFA",
+      "Iron",
+      "Isapghol",
+      "Lactulose",
+      "Lcz (Syp)",
+      "Metformin",
+      "Metronidazole",
+      "Mometasone (Cream)",
+      "Mupirocin (Oint)",
+      "Norflox (Tab)",
+      "Noscapine (Syp)",
+      "Omeprazole (Cap)",
+      "Ondansetron",
+      "ORS",
+      "Pantop",
+      "PCM (Tab)",
+      "PCM (Syp)",
+      "Promethazine (Syp)",
+      "Ranitidine",
+      "Salbutamol (Syp)",
+      "Telma (Tab)",
+      "Thyroxine",
+      "Vit D + Ca (Tab)",
+      "Vit D + Ca (Syp)",
+      "Zinc (Syp)"
+    ];
+
+    let drugMasterList = defaultMasterList;
+    let drugTotals = JSON.parse(localStorage.getItem('drugTotals')) || {};
+    let previousState = null;
+
+    const drugSelect = document.getElementById('drugInput');
+    const undoBtn = document.getElementById('undoBtn');
+
+    function refreshDatalist() {
+      drugSelect.innerHTML = '<option value="">-- Select Drug --</option>';
+      drugMasterList.forEach(drug => {
+        const opt = document.createElement('option');
+        opt.value = drug;
+        opt.textContent = drug;
+        drugSelect.appendChild(opt);
+      });
+    }
+
+    function saveStateForUndo() {
+      previousState = JSON.parse(JSON.stringify(drugTotals));
+      undoBtn.disabled = false;
+    }
+
+    const presetQty = document.getElementById('presetQty');
+    const manualQty = document.getElementById('manualQty');
+    presetQty.addEventListener('change', (e) => {
+      if (e.target.value) manualQty.value = e.target.value;
+    });
+
+    const form = document.getElementById('dispenseForm');
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const drug = drugSelect.value.trim();
+      const qty = parseInt(manualQty.value, 10);
+
+      if (!drug || isNaN(qty) || qty <= 0) return;
+
+      saveStateForUndo();
+
+      drugTotals[drug] = (drugTotals[drug] || 0) + qty;
+      saveAndRender();
+
+      drugSelect.value = '';
+      manualQty.value = '';
+      presetQty.value = '';
+    });
+
+    function adjustQty(drug, amount) {
+      saveStateForUndo();
+      drugTotals[drug] = (drugTotals[drug] || 0) + amount;
+      if (drugTotals[drug] <= 0) {
+        delete drugTotals[drug];
+      }
+      saveAndRender();
+    }
+
+    function removeDrugEntry(drug) {
+      if (confirm(`Remove "${drug}" completely from the log summary?`)) {
+        saveStateForUndo();
+        delete drugTotals[drug];
+        saveAndRender();
+      }
+    }
+
+    function renderSummary() {
+      const tbody = document.getElementById('summaryTableBody');
+      tbody.innerHTML = '';
+
+      const entries = Object.entries(drugTotals);
+
+      if (entries.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: #94a3b8; font-style: italic; padding: 1rem;">No items dispensed yet.</td></tr>`;
+        return;
+      }
+
+      entries.sort((a, b) => a[0].localeCompare(b[0])).forEach(([drug, count]) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td style="font-weight: 500;">${drug}</td>
+          <td class="text-right" style="font-weight: 600; color: #2563eb;">${count}</td>
+          <td class="text-center">
+            <button onclick="adjustQty('${drug}', -1)" class="qty-btn" title="Subtract 1">-</button>
+            <button onclick="adjustQty('${drug}', 1)" class="qty-btn" title="Add 1">+</button>
+            <button onclick="removeDrugEntry('${drug}')" class="btn-del" title="Delete Row">✕</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function saveAndRender() {
+      localStorage.setItem('drugTotals', JSON.stringify(drugTotals));
+      renderSummary();
+    }
+
+    undoBtn.addEventListener('click', () => {
+      if (previousState !== null) {
+        drugTotals = JSON.parse(JSON.stringify(previousState));
+        previousState = null;
+        undoBtn.disabled = true;
+        saveAndRender();
+      }
+    });
+
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      if (confirm("Are you sure you want to CLEAR ALL recorded counts and restart?")) {
+        saveStateForUndo();
+        drugTotals = {};
+        saveAndRender();
+      }
+    });
+
+    document.getElementById('copyBtn').addEventListener('click', () => {
+      const text = Object.entries(drugTotals)
+        .map(([drug, count]) => `${drug}: ${count}`)
+        .join('\n');
+      if (!text) return alert("Nothing to copy!");
+      navigator.clipboard.writeText(text);
+      alert("Summary copied to clipboard!");
+    });
+
+    // Offline Service Worker
+    if ('serviceWorker' in navigator) {
+      const swCode = `
+        const CACHE_NAME = 'drug-app-v7';
+        self.addEventListener('install', e => {
+          e.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(['./'])));
+        });
+        self.addEventListener('fetch', e => {
+          e.respondWith(caches.match(e.request).then(res => res || fetch(e.request)));
+        });
+      `;
+      const blob = new Blob([swCode], { type: 'application/javascript' });
+      navigator.serviceWorker.register(URL.createObjectURL(blob));
+    }
+
+    refreshDatalist();
+    renderSummary();
+  </script>
+</body>
+</html>
