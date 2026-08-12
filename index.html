@@ -30,15 +30,48 @@
     table { width: 100%; text-align: left; border-collapse: collapse; margin-top: 0.5rem; }
     th { border-bottom: 1px solid #e2e8f0; color: #64748b; font-size: 0.75rem; font-weight: 600; text-transform: uppercase; padding: 0.625rem 0.75rem; }
     td { padding: 0.625rem 0.75rem; border-bottom: 1px solid #f1f5f9; font-size: 0.875rem; }
-    .capitalize { text-transform: capitalize; }
     .text-right { text-align: right; }
     .text-center { text-align: center; }
     .qty-btn { background: #f1f5f9; border: 1px solid #cbd5e1; color: #334155; border-radius: 0.25rem; width: 24px; height: 24px; font-weight: bold; cursor: pointer; line-height: 1; }
     .qty-btn:hover { background: #e2e8f0; }
     .btn-del { color: #ef4444; background: none; border: none; cursor: pointer; font-size: 1rem; padding: 0.25rem; margin-left: 0.5rem; }
-    .search-row { display: flex; flex-direction: column; gap: 0.5rem; }
-    .hint { font-size: 0.7rem; color: #94a3b8; margin-top: 0.15rem; }
+    .search-row { display: flex; flex-direction: column; gap: 0.4rem; position: relative; }
+    .hint { font-size: 0.7rem; color: #94a3b8; margin-top: 0.1rem; }
     .add-drug-section { margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed #e2e8f0; }
+
+    /* Live suggestions dropdown */
+    .suggestions-box {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      background: white;
+      border: 1px solid #cbd5e1;
+      border-radius: 0.5rem;
+      max-height: 220px;
+      overflow-y: auto;
+      z-index: 50;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+      display: none;
+      margin-top: 2px;
+    }
+    .suggestion-item {
+      padding: 0.65rem 0.85rem;
+      cursor: pointer;
+      font-size: 0.875rem;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .suggestion-item:last-child { border-bottom: none; }
+    .suggestion-item:hover {
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+    .no-match {
+      padding: 0.75rem;
+      color: #94a3b8;
+      font-size: 0.8rem;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
@@ -57,19 +90,26 @@
       
       <form id="dispenseForm" class="grid">
         
-        <!-- Column 1: Search + Dropdown -->
+        <!-- Column 1: Search + Normal Dropdown -->
         <div class="search-row">
           <label>Select / Search Drug</label>
+          
+          <!-- Search box (live suggestions appear while typing) -->
           <input 
             type="text" 
             id="drugSearch" 
             placeholder="Type to search..." 
             autocomplete="off"
+            spellcheck="false"
           />
-          <select id="drugInput" required size="1">
+          <div id="suggestions" class="suggestions-box"></div>
+
+          <!-- Normal dropdown (full list – no need to search) -->
+          <select id="drugInput">
             <option value="">-- Select Drug --</option>
           </select>
-          <div class="hint">Type above to filter the list • Or pick from dropdown</div>
+          
+          <div class="hint">Type above for live search • Or open the dropdown to pick normally</div>
         </div>
 
         <!-- Column 2: Quantity Dispensed -->
@@ -134,7 +174,7 @@
             </tr>
           </thead>
           <tbody id="summaryTableBody">
-            <!-- Dynamic Totals Render Here -->
+            <!-- Dynamic Totals -->
           </tbody>
         </table>
       </div>
@@ -205,9 +245,10 @@
     let drugTotals = JSON.parse(localStorage.getItem('drugTotals')) || {};
     let previousState = null;
 
-    // ========== DOM ELEMENTS ==========
-    const drugSelect = document.getElementById('drugInput');
+    // ========== DOM ==========
     const drugSearch = document.getElementById('drugSearch');
+    const drugSelect = document.getElementById('drugInput');
+    const suggestionsBox = document.getElementById('suggestions');
     const undoBtn = document.getElementById('undoBtn');
     const newDrugName = document.getElementById('newDrugName');
     const addDrugBtn = document.getElementById('addDrugBtn');
@@ -215,46 +256,107 @@
     // ========== BUILD MASTER LIST ==========
     function rebuildMasterList() {
       const combined = [...defaultMasterList, ...customDrugs];
-      // Unique + sorted (case-insensitive)
       const unique = [...new Set(combined.map(d => d.trim()).filter(Boolean))];
       unique.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
       drugMasterList = unique;
+      refreshSelect();
     }
 
-    // ========== REFRESH DROPDOWN (with optional filter) ==========
-    function refreshDatalist(filter = '') {
-      const currentValue = drugSelect.value;
+    // ========== REFRESH NORMAL DROPDOWN ==========
+    function refreshSelect(filter = '') {
+      const current = drugSelect.value;
       drugSelect.innerHTML = '<option value="">-- Select Drug --</option>';
 
-      const lowerFilter = filter.trim().toLowerCase();
-      const filtered = lowerFilter
-        ? drugMasterList.filter(d => d.toLowerCase().includes(lowerFilter))
+      const lower = filter.trim().toLowerCase();
+      const list = lower
+        ? drugMasterList.filter(d => d.toLowerCase().includes(lower))
         : drugMasterList;
 
-      filtered.forEach(drug => {
+      list.forEach(drug => {
         const opt = document.createElement('option');
         opt.value = drug;
         opt.textContent = drug;
         drugSelect.appendChild(opt);
       });
 
-      // Try to keep previous selection if still visible
-      if (currentValue && filtered.includes(currentValue)) {
-        drugSelect.value = currentValue;
+      if (current && list.includes(current)) {
+        drugSelect.value = current;
       }
     }
 
-    // ========== SEARCH FILTER ==========
+    // ========== LIVE SUGGESTIONS ==========
+    function showSuggestions(filterText) {
+      const q = filterText.trim().toLowerCase();
+      suggestionsBox.innerHTML = '';
+
+      if (!q) {
+        suggestionsBox.style.display = 'none';
+        refreshSelect('');          // show full list in dropdown when search is empty
+        return;
+      }
+
+      // Also filter the normal select while typing
+      refreshSelect(q);
+
+      const matches = drugMasterList.filter(d => d.toLowerCase().includes(q));
+
+      if (matches.length === 0) {
+        suggestionsBox.innerHTML = `<div class="no-match">No match found. You can still use this name.</div>`;
+        suggestionsBox.style.display = 'block';
+        return;
+      }
+
+      matches.slice(0, 40).forEach(drug => {
+        const item = document.createElement('div');
+        item.className = 'suggestion-item';
+        item.textContent = drug;
+        item.addEventListener('click', () => {
+          selectFromSuggestion(drug);
+        });
+        suggestionsBox.appendChild(item);
+      });
+
+      suggestionsBox.style.display = 'block';
+    }
+
+    function selectFromSuggestion(drug) {
+      drugSearch.value = drug;
+      drugSelect.value = drug;
+      suggestionsBox.style.display = 'none';
+      drugSearch.blur();
+    }
+
+    // Typing → live suggestions + filter the select
     drugSearch.addEventListener('input', () => {
-      refreshDatalist(drugSearch.value);
+      showSuggestions(drugSearch.value);
     });
 
-    // When user picks from dropdown, clear the search box for next time
+    // When user picks from the normal dropdown
     drugSelect.addEventListener('change', () => {
       if (drugSelect.value) {
-        drugSearch.value = '';
-        // Re-show full list after selection (optional – keep filtered if preferred)
-        // refreshDatalist('');
+        drugSearch.value = drugSelect.value;
+        suggestionsBox.style.display = 'none';
+      }
+    });
+
+    // Close suggestions when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.search-row')) {
+        suggestionsBox.style.display = 'none';
+      }
+    });
+
+    // Keyboard support
+    drugSearch.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const first = suggestionsBox.querySelector('.suggestion-item');
+        if (first) {
+          selectFromSuggestion(first.textContent);
+        }
+      }
+      if (e.key === 'Escape') {
+        suggestionsBox.style.display = 'none';
       }
     });
 
@@ -266,7 +368,6 @@
         return false;
       }
 
-      // Already exists? (case-insensitive)
       const exists = drugMasterList.some(d => d.toLowerCase() === clean.toLowerCase());
       if (exists) {
         if (!silent) alert(`"${clean}" is already in your list.`);
@@ -276,7 +377,6 @@
       customDrugs.push(clean);
       localStorage.setItem('customDrugs', JSON.stringify(customDrugs));
       rebuildMasterList();
-      refreshDatalist(drugSearch.value);
 
       if (!silent) {
         alert(`"${clean}" has been added to your personal list.`);
@@ -289,7 +389,6 @@
       addCustomDrug(newDrugName.value);
     });
 
-    // Allow Enter key in the add-drug field
     newDrugName.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -316,11 +415,8 @@
     form.addEventListener('submit', (e) => {
       e.preventDefault();
 
-      let drug = drugSelect.value.trim();
-      // Fallback: if nothing selected but user typed something in search
-      if (!drug && drugSearch.value.trim()) {
-        drug = drugSearch.value.trim();
-      }
+      // Prefer the select value, fallback to search box
+      let drug = drugSelect.value.trim() || drugSearch.value.trim();
 
       const qty = parseInt(manualQty.value, 10);
 
@@ -329,7 +425,7 @@
         return;
       }
 
-      // If this drug is not yet in the master list → offer to add permanently
+      // New drug? Offer to add permanently
       const alreadyInList = drugMasterList.some(d => d.toLowerCase() === drug.toLowerCase());
       if (!alreadyInList) {
         const shouldAdd = confirm(`"${drug}" is not in your list.\n\nDo you want to add it permanently to your personal medicine list?`);
@@ -343,12 +439,13 @@
       drugTotals[drug] = (drugTotals[drug] || 0) + qty;
       saveAndRender();
 
-      // Reset form
-      drugSelect.value = '';
+      // Reset
       drugSearch.value = '';
+      drugSelect.value = '';
       manualQty.value = '';
       presetQty.value = '';
-      refreshDatalist('');
+      suggestionsBox.style.display = 'none';
+      refreshSelect('');
     });
 
     // ========== ADJUST / REMOVE ==========
@@ -383,13 +480,14 @@
 
       entries.sort((a, b) => a[0].localeCompare(b[0])).forEach(([drug, count]) => {
         const tr = document.createElement('tr');
+        const safeDrug = drug.replace(/'/g, "\\'");
         tr.innerHTML = `
           <td style="font-weight: 500;">${drug}</td>
           <td class="text-right" style="font-weight: 600; color: #2563eb;">${count}</td>
           <td class="text-center">
-            <button onclick="adjustQty('${drug.replace(/'/g, "\\'")}', -1)" class="qty-btn" title="Subtract 1">-</button>
-            <button onclick="adjustQty('${drug.replace(/'/g, "\\'")}', 1)" class="qty-btn" title="Add 1">+</button>
-            <button onclick="removeDrugEntry('${drug.replace(/'/g, "\\'")}')" class="btn-del" title="Delete Row">✕</button>
+            <button onclick="adjustQty('${safeDrug}', -1)" class="qty-btn" title="Subtract 1">-</button>
+            <button onclick="adjustQty('${safeDrug}', 1)" class="qty-btn" title="Add 1">+</button>
+            <button onclick="removeDrugEntry('${safeDrug}')" class="btn-del" title="Delete Row">✕</button>
           </td>
         `;
         tbody.appendChild(tr);
@@ -434,7 +532,7 @@
     // ========== OFFLINE SERVICE WORKER ==========
     if ('serviceWorker' in navigator) {
       const swCode = `
-        const CACHE_NAME = 'drug-app-v8';
+        const CACHE_NAME = 'drug-app-v10';
         self.addEventListener('install', e => {
           e.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(['./'])));
         });
@@ -448,220 +546,6 @@
 
     // ========== INIT ==========
     rebuildMasterList();
-    refreshDatalist();
-    renderSummary();
-  </script>
-</body>
-</html>          <thead>
-            <tr>
-              <th>Drug Name</th>
-              <th class="text-right">Total Count Dispensed</th>
-              <th class="text-center" style="width: 120px;">Adjust / Delete</th>
-            </tr>
-          </thead>
-          <tbody id="summaryTableBody">
-            <!-- Dynamic Totals Render Here -->
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-  </div>
-
-  <script>
-    const defaultMasterList = [
-  "Adapalene",
-  "Albendazole (Syp)",
-  "Amlodipine",
-  "Amoxycillin",
-  "Amoxyclav",
-  "Antacid",
-  "Azithro (Tab)",
-  "Betamethasone (Cream)",
-  "Bromhexine (Syp)",
-  "Calamine Lotion",
-  "Calcium",
-  "Clindamycin (Cream)",
-  "Clobetasol (Oint)",
-  "Clotri Powder",
-  "Clotrimazole (Cream)",
-  "Cotrimoxazole (Sulfamethoxazole + Trimethoprim)",
-  "Diclo (Tab)",
-  "Diclo (Gel)",
-  "Fluconazole (Tab)",
-  "Folate (Tab)",
-  "Folic Acid",
-  "Framycetin (Cream)",
-  "Fusidic Acid (Cream)",
-  "Gliclazide (Tab)",
-  "IFA",
-  "Iron",
-  "Isapghol",
-  "Lactulose",
-  "Lcz (Tab)",
-  "Lcz (Syp)",
-  "Metformin",
-  "Metoprolol (Tab)",
-  "Metronidazole",
-  "Mometasone (Cream)",
-  "Mupirocin (Oint)",
-  "Norflox (Tab)",
-  "Noscapine (Syp)",
-  "Omeprazole (Cap)",
-  "Ondansetron",
-  "ORS",
-  "Pantop",
-  "PCM (Tab)",
-  "PCM (Syp)",
-  "Povidone Iodine / Betadine (Oint)",
-  "Promethazine (Syp)",
-  "Ranitidine",
-  "Salbutamol (Syp)",
-  "Telma (Tab)",
-  "Thyroxine",
-  "Vit D + Ca (Tab)",
-  "Vit D + Ca (Syp)",
-  "Zinc (Syp)"
-];
-
-
-    let drugMasterList = defaultMasterList;
-    let drugTotals = JSON.parse(localStorage.getItem('drugTotals')) || {};
-    let previousState = null;
-
-    const drugSelect = document.getElementById('drugInput');
-    const undoBtn = document.getElementById('undoBtn');
-
-    function refreshDatalist() {
-      drugSelect.innerHTML = '<option value="">-- Select Drug --</option>';
-      drugMasterList.forEach(drug => {
-        const opt = document.createElement('option');
-        opt.value = drug;
-        opt.textContent = drug;
-        drugSelect.appendChild(opt);
-      });
-    }
-
-    function saveStateForUndo() {
-      previousState = JSON.parse(JSON.stringify(drugTotals));
-      undoBtn.disabled = false;
-    }
-
-    const presetQty = document.getElementById('presetQty');
-    const manualQty = document.getElementById('manualQty');
-    presetQty.addEventListener('change', (e) => {
-      if (e.target.value) manualQty.value = e.target.value;
-    });
-
-    const form = document.getElementById('dispenseForm');
-
-    form.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const drug = drugSelect.value.trim();
-      const qty = parseInt(manualQty.value, 10);
-
-      if (!drug || isNaN(qty) || qty <= 0) return;
-
-      saveStateForUndo();
-
-      drugTotals[drug] = (drugTotals[drug] || 0) + qty;
-      saveAndRender();
-
-      drugSelect.value = '';
-      manualQty.value = '';
-      presetQty.value = '';
-    });
-
-    function adjustQty(drug, amount) {
-      saveStateForUndo();
-      drugTotals[drug] = (drugTotals[drug] || 0) + amount;
-      if (drugTotals[drug] <= 0) {
-        delete drugTotals[drug];
-      }
-      saveAndRender();
-    }
-
-    function removeDrugEntry(drug) {
-      if (confirm(`Remove "${drug}" completely from the log summary?`)) {
-        saveStateForUndo();
-        delete drugTotals[drug];
-        saveAndRender();
-      }
-    }
-
-    function renderSummary() {
-      const tbody = document.getElementById('summaryTableBody');
-      tbody.innerHTML = '';
-
-      const entries = Object.entries(drugTotals);
-
-      if (entries.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="3" style="text-align: center; color: #94a3b8; font-style: italic; padding: 1rem;">No items dispensed yet.</td></tr>`;
-        return;
-      }
-
-      entries.sort((a, b) => a[0].localeCompare(b[0])).forEach(([drug, count]) => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-          <td style="font-weight: 500;">${drug}</td>
-          <td class="text-right" style="font-weight: 600; color: #2563eb;">${count}</td>
-          <td class="text-center">
-            <button onclick="adjustQty('${drug}', -1)" class="qty-btn" title="Subtract 1">-</button>
-            <button onclick="adjustQty('${drug}', 1)" class="qty-btn" title="Add 1">+</button>
-            <button onclick="removeDrugEntry('${drug}')" class="btn-del" title="Delete Row">✕</button>
-          </td>
-        `;
-        tbody.appendChild(tr);
-      });
-    }
-
-    function saveAndRender() {
-      localStorage.setItem('drugTotals', JSON.stringify(drugTotals));
-      renderSummary();
-    }
-
-    undoBtn.addEventListener('click', () => {
-      if (previousState !== null) {
-        drugTotals = JSON.parse(JSON.stringify(previousState));
-        previousState = null;
-        undoBtn.disabled = true;
-        saveAndRender();
-      }
-    });
-
-    document.getElementById('resetBtn').addEventListener('click', () => {
-      if (confirm("Are you sure you want to CLEAR ALL recorded counts and restart?")) {
-        saveStateForUndo();
-        drugTotals = {};
-        saveAndRender();
-      }
-    });
-
-    document.getElementById('copyBtn').addEventListener('click', () => {
-      const text = Object.entries(drugTotals)
-        .map(([drug, count]) => `${drug}: ${count}`)
-        .join('\n');
-      if (!text) return alert("Nothing to copy!");
-      navigator.clipboard.writeText(text);
-      alert("Summary copied to clipboard!");
-    });
-
-    // Offline Service Worker
-    if ('serviceWorker' in navigator) {
-      const swCode = `
-        const CACHE_NAME = 'drug-app-v7';
-        self.addEventListener('install', e => {
-          e.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(['./'])));
-        });
-        self.addEventListener('fetch', e => {
-          e.respondWith(caches.match(e.request).then(res => res || fetch(e.request)));
-        });
-      `;
-      const blob = new Blob([swCode], { type: 'application/javascript' });
-      navigator.serviceWorker.register(URL.createObjectURL(blob));
-    }
-
-    refreshDatalist();
     renderSummary();
   </script>
 </body>
